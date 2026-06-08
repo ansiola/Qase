@@ -5,9 +5,10 @@ on:
     branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
-  schedule:
-    - cron: '0 8 * * *'  # Ежедневный запуск в 8:00
   workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   test:
@@ -23,14 +24,26 @@ jobs:
         distribution: 'temurin'
         cache: maven
     
-    - name: Setup Chrome
-      uses: browser-actions/setup-chrome@v1
-      with:
-        chrome-version: stable
-    
-    - name: Setup Xvfb (virtual display)
+    # Альтернативный способ установки Chrome (без сторонних actions)
+    - name: Install Chrome
       run: |
+        wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+        sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list'
         sudo apt-get update
+        sudo apt-get install -y google-chrome-stable
+        google-chrome --version
+    
+    - name: Install ChromeDriver
+      run: |
+        CHROME_VERSION=$(google-chrome --version | awk '{print $3}')
+        CHROMEDRIVER_VERSION=$(curl -s https://chromedriver.storage.googleapis.com/LATEST_RELEASE_${CHROME_VERSION%.*.*})
+        wget https://chromedriver.storage.googleapis.com/$CHROMEDRIVER_VERSION/chromedriver_linux64.zip
+        unzip chromedriver_linux64.zip
+        sudo mv chromedriver /usr/local/bin/
+        chromedriver --version
+    
+    - name: Setup Xvfb
+      run: |
         sudo apt-get install -y xvfb
         Xvfb :99 -screen 0 1920x1080x24 &
         echo "DISPLAY=:99" >> $GITHUB_ENV
@@ -51,13 +64,12 @@ jobs:
     - name: Run tests
       run: mvn clean test
     
-    - name: Generate Allure report
-      if: always()
-      run: mvn allure:report
-    
-    - name: Upload Allure report
+    - name: Upload reports
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: allure-report
-        path: target/site/allure-maven-plugin/
+        name: test-reports
+        path: |
+          target/surefire-reports/
+          target/allure-results/
+          target/site/allure-maven-plugin/

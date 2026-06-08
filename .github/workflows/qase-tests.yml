@@ -1,0 +1,63 @@
+name: Qase Tests
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  schedule:
+    - cron: '0 8 * * *'  # Ежедневный запуск в 8:00
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: maven
+    
+    - name: Setup Chrome
+      uses: browser-actions/setup-chrome@v1
+      with:
+        chrome-version: stable
+    
+    - name: Setup Xvfb (virtual display)
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y xvfb
+        Xvfb :99 -screen 0 1920x1080x24 &
+        echo "DISPLAY=:99" >> $GITHUB_ENV
+    
+    - name: Create config file
+      run: |
+        mkdir -p src/test/resources
+        cat > src/test/resources/config.properties << EOF
+        google.login=${{ secrets.GOOGLE_LOGIN }}
+        google.password=${{ secrets.GOOGLE_PASSWORD }}
+        allure.results.directory=target/allure-results
+        allure.link.issue.pattern=https://example.ru/issue/{}
+        allure.link.tms.pattern=https://example.ru/tms/{}
+        junit.jupiter.execution.parallel.enabled=false
+        junit.jupiter.testinstance.lifecycle.default=per_method
+        EOF
+    
+    - name: Run tests
+      run: mvn clean test
+    
+    - name: Generate Allure report
+      if: always()
+      run: mvn allure:report
+    
+    - name: Upload Allure report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: allure-report
+        path: target/site/allure-maven-plugin/
